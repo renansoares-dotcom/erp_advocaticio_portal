@@ -581,6 +581,7 @@ async function carregarMensagens() {
     .eq('cliente_id', clienteId)
     .order('criado_em', { ascending: true });
   if(error) { console.warn('Erro ao carregar mensagens:', error); return; }
+  storeMensagens = data || [];
   renderChat();
   atualizarBadgeMensagens();
 }
