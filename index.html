@@ -584,6 +584,19 @@ async function carregarMensagens() {
   storeMensagens = data || [];
   renderChat();
   atualizarBadgeMensagens();
+  marcarMensagensComoLidas();
+}
+
+// Ao entrar na conversa, marca como lidas as mensagens do escritório que
+// o cliente ainda não tinha visto — assim o badge some.
+async function marcarMensagensComoLidas() {
+  const naoLidas = storeMensagens.filter(m => m.remetente === 'escritorio' && !m.lida);
+  if(!naoLidas.length) return;
+  for(const m of naoLidas) {
+    const { error } = await sb.rpc('marcar_mensagem_lida_cliente', { p_mensagem_id: m.id });
+    if(!error) m.lida = true;
+  }
+  atualizarBadgeMensagens();
 }
 
 // ---- Render: Processos ----
