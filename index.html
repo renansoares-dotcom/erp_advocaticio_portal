@@ -824,6 +824,15 @@ async function enviarMensagem() {
 
 // ---- Boot ----
 init();
+
+// Mesma correção de causa raiz aplicada no ERP: revalida a sessão do
+// Supabase Auth sempre que a aba do portal volta a ficar visível, evitando
+// erros confusos de RLS por token expirado em segundo plano.
+document.addEventListener('visibilitychange', async () => {
+  if(document.visibilityState === 'visible' && sb) {
+    await sb.auth.getSession();
+  }
+});
 </script>
 </body>
 </html>
