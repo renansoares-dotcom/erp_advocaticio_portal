@@ -776,6 +776,18 @@ async function enviarMensagem() {
   const btn = document.querySelector('.btn-enviar');
   btn.disabled = true;
 
+  // --- DIAGNÓSTICO TEMPORÁRIO ---
+  const { data: userData } = await sb.auth.getUser();
+  const { data: rpcClienteId, error: rpcErr1 } = await sb.rpc('meu_cliente_id');
+  const { data: rpcEscritorioId, error: rpcErr2 } = await sb.rpc('meu_escritorio_id_cliente');
+  console.log('=== DIAGNÓSTICO ENVIO DE MENSAGEM ===');
+  console.log('auth.uid() (sessão atual):', userData?.user?.id);
+  console.log('clienteId local (variável JS):', clienteId);
+  console.log('escritorioId local (variável JS):', escritorioId);
+  console.log('meu_cliente_id() via RPC:', rpcClienteId, rpcErr1);
+  console.log('meu_escritorio_id_cliente() via RPC:', rpcEscritorioId, rpcErr2);
+  // --- FIM DIAGNÓSTICO ---
+
   const { data, error } = await sb.from('portal_mensagens').insert({
     escritorio_id: escritorioId, cliente_id: clienteId,
     processo_id: processoId, remetente: 'cliente', conteudo
@@ -783,7 +795,11 @@ async function enviarMensagem() {
 
   if(error) {
     console.error('Erro ao enviar mensagem:', error);
-    alert('Erro ao enviar mensagem:\n' + (error.message || '') + (error.hint ? '\nDica: ' + error.hint : '') + (error.code ? '\nCódigo: ' + error.code : ''));
+    alert('Erro ao enviar mensagem:\n' + (error.message || '') + (error.hint ? '\nDica: ' + error.hint : '') + (error.code ? '\nCódigo: ' + error.code : '')
+      + '\n\n--- Diagnóstico ---\nauth.uid(): ' + (userData?.user?.id || 'N/A')
+      + '\nclienteId local: ' + clienteId
+      + '\nmeu_cliente_id() RPC: ' + (rpcClienteId ?? 'NULL/erro')
+      + '\nmeu_escritorio_id_cliente() RPC: ' + (rpcEscritorioId ?? 'NULL/erro'));
     btn.disabled = false;
     return;
   }
