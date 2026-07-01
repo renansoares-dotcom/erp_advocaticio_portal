@@ -203,6 +203,7 @@ body{font-family:'Inter',sans-serif;background:#F7F9FC;color:#1A2B3C;min-height:
 .parcela-status-pago{background:var(--green-soft);color:var(--green);padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:600}
 .parcela-status-pendente{background:var(--amber-soft);color:var(--amber);padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:600}
 .parcela-status-atrasado{background:var(--red-soft);color:var(--red);padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:600}
+.parcela-status-cancelado{background:#F1F5F9;color:var(--gray);padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:600}
 .resumo-financeiro{
   display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
   gap:12px;margin-bottom:20px;
@@ -568,10 +569,10 @@ async function carregarProcessos() {
 
 async function carregarParcelas() {
   const { data, error } = await sb.from('parcelas')
-    .select('id, descricao, valor, vencimento, pago, processo_id')
+    .select('id, numero, total_parcelas, valor, vencimento, status, processo_id, observacoes')
     .eq('cliente_id', clienteId)
     .order('vencimento');
-  if(error) { console.warn(error.message); return; }
+  if(error) { console.warn('Erro ao carregar parcelas:', error); return; }
   storeParcelas = data || [];
 }
 
@@ -726,9 +727,9 @@ async function renderDocumentos() {
 // ---- Render: Financeiro ----
 function renderFinanceiro() {
   const total = storeParcelas.reduce((s,p) => s + (p.valor||0), 0);
-  const pagas = storeParcelas.filter(p => p.pago);
-  const pendentes = storeParcelas.filter(p => !p.pago && new Date(p.vencimento) >= new Date());
-  const atrasadas = storeParcelas.filter(p => !p.pago && new Date(p.vencimento) < new Date());
+  const pagas = storeParcelas.filter(p => p.status === 'pago');
+  const pendentes = storeParcelas.filter(p => p.status === 'pendente' && new Date(p.vencimento) >= new Date());
+  const atrasadas = storeParcelas.filter(p => p.status === 'pendente' && new Date(p.vencimento) < new Date());
 
   const fmtMoney = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
 
@@ -746,14 +747,17 @@ function renderFinanceiro() {
 
   document.getElementById('parcelas-lista').innerHTML = storeParcelas.map(p => {
     const venc = new Date(p.vencimento+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
-    const atrasado = !p.pago && new Date(p.vencimento) < new Date();
-    const stCls = p.pago ? 'parcela-status-pago' : (atrasado ? 'parcela-status-atrasado' : 'parcela-status-pendente');
-    const stLabel = p.pago ? '✅ Pago' : (atrasado ? '⚠️ Atrasado' : '⏳ Pendente');
+    const pago = p.status === 'pago';
+    const cancelado = p.status === 'cancelado';
+    const atrasado = p.status === 'pendente' && new Date(p.vencimento) < new Date();
+    const stCls = pago ? 'parcela-status-pago' : cancelado ? 'parcela-status-cancelado' : (atrasado ? 'parcela-status-atrasado' : 'parcela-status-pendente');
+    const stLabel = pago ? '✅ Pago' : cancelado ? '❌ Cancelado' : (atrasado ? '⚠️ Atrasado' : '⏳ Pendente');
     const proc = storeProcessos.find(pr => pr.id === p.processo_id);
+    const desc = p.observacoes || ('Parcela ' + p.numero + ' de ' + p.total_parcelas);
     return `<div class="parcela-item">
       <div>
         <div class="parcela-valor">${fmtMoney(p.valor)}</div>
-        <div class="parcela-desc">${p.descricao||'Honorários'}${proc?' · '+proc.numero:''} · Venc. ${venc}</div>
+        <div class="parcela-desc">${desc}${proc?' · '+proc.numero:''} · Venc. ${venc}</div>
       </div>
       <span class="${stCls}">${stLabel}</span>
     </div>`;
