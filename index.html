@@ -657,17 +657,20 @@ async function renderDocumentos() {
 
   lista.innerHTML = '<div class="loading">Carregando...</div>';
 
-  let query = sb.from('processo_documentos')
-    .select('id, nome, tipo, tamanho, url, criado_em, processo_id')
+  let query = sb.from('documentos')
+    .select('id, nome_arquivo, tipo, tamanho_bytes, storage_path, criado_em, processo_id, cliente_id')
     .eq('escritorio_id', escritorioId);
 
   if(processoId) {
     query = query.eq('processo_id', processoId);
   } else {
-    // Filtrar pelos processos do cliente
+    // Cliente vê documentos vinculados a ele ou a seus processos
     const ids = storeProcessos.map(p => p.id);
-    if(!ids.length) { lista.innerHTML = '<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Nenhum documento disponível.</div></div>'; return; }
-    query = query.in('processo_id', ids);
+    if(ids.length) {
+      query = query.or(`cliente_id.eq.${clienteId},processo_id.in.(${ids.join(',')})`);
+    } else {
+      query = query.eq('cliente_id', clienteId);
+    }
   }
 
   const { data, error } = await query.order('criado_em', { ascending: false });
@@ -676,21 +679,28 @@ async function renderDocumentos() {
     return;
   }
 
-  lista.innerHTML = data.map(doc => {
+  lista.innerHTML = await Promise.all(data.map(async doc => {
     const proc = storeProcessos.find(p => p.id === doc.processo_id);
     const data_fmt = new Date(doc.criado_em).toLocaleDateString('pt-BR');
-    const tamanho = doc.tamanho ? (doc.tamanho > 1024*1024 ? (doc.tamanho/1024/1024).toFixed(1)+' MB' : Math.round(doc.tamanho/1024)+' KB') : '';
-    const ext = (doc.nome||'').split('.').pop().toLowerCase();
+    const tamanho = doc.tamanho_bytes ? (doc.tamanho_bytes > 1024*1024 ? (doc.tamanho_bytes/1024/1024).toFixed(1)+' MB' : Math.round(doc.tamanho_bytes/1024)+' KB') : '';
+    const ext = (doc.nome_arquivo||'').split('.').pop().toLowerCase();
+    // Gerar URL assinada via Storage
+    let urlDownload = '';
+    if(doc.storage_path) {
+      const { data: signed } = await sb.storage.from('documentos').createSignedUrl(doc.storage_path, 300);
+      urlDownload = signed?.signedUrl || '';
+    }
+    const doc_nome = doc.nome_arquivo || 'Documento';
     const icone = {pdf:'📄',doc:'📝',docx:'📝',jpg:'🖼',jpeg:'🖼',png:'🖼'}[ext] || '📎';
     return `<div class="doc-item">
       <div class="doc-icon">${icone}</div>
       <div>
-        <div class="doc-nome">${doc.nome||'Documento'}</div>
+        <div class="doc-nome">${doc_nome}</div>
         <div class="doc-meta">${proc?proc.numero+' · ':''}${data_fmt}${tamanho?' · '+tamanho:''}</div>
       </div>
-      ${doc.url ? `<button class="doc-baixar" onclick="window.open('${doc.url}','_blank')">⬇ Baixar</button>` : ''}
+      ${urlDownload ? `<button class="doc-baixar" onclick="window.open('${urlDownload}','_blank')">⬇ Baixar</button>` : ''}
     </div>`;
-  }).join('');
+  })).then(htmls => htmls.join(''));
 }
 
 // ---- Render: Financeiro ----
