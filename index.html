@@ -555,7 +555,7 @@ async function carregarTudo() {
 
 async function carregarProcessos() {
   const { data, error } = await sb.from('processos')
-    .select('id, numero, status, tipo:tipos(nome), vara, comarca, criado_em, andamentos(id, data_andamento, descricao, criado_em)')
+    .select('id, numero, status, tipo:tipos_processo(nome), vara, criado_em, andamentos(id, criado_em, autor_nome, texto, status)')
     .eq('cliente_id', clienteId)
     .order('criado_em', { ascending: false });
   if(error) { console.warn(error.message); return; }
@@ -618,7 +618,7 @@ function renderProcessos() {
   lista.innerHTML = storeProcessos.map(p => {
     const st = STATUS_MAP[p.status] || { label: p.status, cls: 'status-encerrado', icon: '⚫' };
     const tipo = p.tipo?.nome || '—';
-    const andamentos = (p.andamentos||[]).slice().sort((a,b) => new Date(b.data_andamento||b.criado_em) - new Date(a.data_andamento||a.criado_em));
+    const andamentos = (p.andamentos||[]).slice().sort((a,b) => new Date(b.criado_em) - new Date(a.criado_em));
     const ultimoAnd = andamentos[0];
 
     return `<div class="processo-card" onclick="abrirProcesso('${p.id}')">
@@ -632,8 +632,7 @@ function renderProcessos() {
       <div class="processo-card-body">
         <div class="processo-meta">
           ${p.vara ? `<div class="meta-item"><strong>Vara:</strong> ${p.vara}</div>` : ''}
-          ${p.comarca ? `<div class="meta-item"><strong>Comarca:</strong> ${p.comarca}</div>` : ''}
-          ${ultimoAnd ? `<div class="meta-item" style="width:100%"><strong>Último andamento:</strong> ${ultimoAnd.descricao?.slice(0,120)||'—'}${ultimoAnd.descricao?.length>120?'…':''}</div>` : ''}
+          ${ultimoAnd ? `<div class="meta-item" style="width:100%"><strong>Último andamento:</strong> ${ultimoAnd.texto?.slice(0,120)||'—'}${ultimoAnd.texto?.length>120?'…':''}</div>` : ''}
         </div>
       </div>
     </div>`;
@@ -645,7 +644,7 @@ function abrirProcesso(processoId) {
   if(!p) return;
 
   const st = STATUS_MAP[p.status] || { label: p.status, cls: 'status-encerrado', icon: '⚫' };
-  const andamentos = (p.andamentos||[]).slice().sort((a,b) => new Date(b.data_andamento||b.criado_em) - new Date(a.data_andamento||a.criado_em));
+  const andamentos = (p.andamentos||[]).slice().sort((a,b) => new Date(b.criado_em) - new Date(a.criado_em));
 
   const html = `<div style="margin-bottom:24px">
     <button onclick="renderProcessos();document.getElementById('page-processos').querySelector('.page-title').textContent='Meus Processos'" style="background:none;border:none;color:var(--blue);cursor:pointer;font-size:13.5px;font-family:inherit;padding:0;margin-bottom:16px">← Voltar</button>
@@ -656,14 +655,13 @@ function abrirProcesso(processoId) {
       </div>
       <span class="status-pill ${st.cls}" style="font-size:13px;padding:6px 14px">${st.icon} ${st.label}</span>
     </div>
-    ${p.vara || p.comarca ? `<div class="card" style="margin-bottom:16px"><div class="card-body"><div style="display:flex;flex-wrap:wrap;gap:20px">
-      ${p.vara?`<div><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray);margin-bottom:3px">Vara</div><div style="font-weight:600">${p.vara}</div></div>`:''}
-      ${p.comarca?`<div><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray);margin-bottom:3px">Comarca</div><div style="font-weight:600">${p.comarca}</div></div>`:''}
+    ${p.vara ? `<div class="card" style="margin-bottom:16px"><div class="card-body"><div style="display:flex;flex-wrap:wrap;gap:20px">
+      <div><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray);margin-bottom:3px">Vara</div><div style="font-weight:600">${p.vara}</div></div>
     </div></div></div>` : ''}
     <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:12px">Andamentos (${andamentos.length})</div>
     ${andamentos.length ? `<div class="timeline">` + andamentos.map(a => {
-      const data = new Date((a.data_andamento||a.criado_em)+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
-      return `<div class="timeline-item"><div class="timeline-data">${data}</div><div class="timeline-texto">${a.descricao||'—'}</div></div>`;
+      const data = new Date(a.criado_em).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
+      return `<div class="timeline-item"><div class="timeline-data">${data}</div><div class="timeline-texto">${a.texto||'—'}</div></div>`;
     }).join('') + `</div>` : '<div class="empty" style="padding:24px"><div class="empty-text">Nenhum andamento registrado ainda.</div></div>'}
   </div>`;
 
