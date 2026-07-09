@@ -555,11 +555,38 @@ async function carregarTudo() {
 
 async function carregarProcessos() {
   const { data, error } = await sb.from('processos')
-    .select('id, numero, status, tipo:tipos_processo(nome), vara, criado_em, andamentos(id, criado_em, autor_nome, texto, status)')
+    .select('id, numero, status, tipo_id, vara, criado_em')
     .eq('cliente_id', clienteId)
     .order('criado_em', { ascending: false });
   if(error) { console.warn(error.message); return; }
   storeProcessos = data || [];
+
+  if(storeProcessos.length) {
+    const processoIds = storeProcessos.map(p => p.id);
+    const tipoIds = [...new Set(storeProcessos.map(p => p.tipo_id).filter(Boolean))];
+
+    // Busca tipo de processo e andamentos à parte (em vez de usar o embed
+    // automático do PostgREST, que não estava reconhecendo a relação) e
+    // junta tudo aqui no JavaScript mesmo.
+    const [tiposRes, andamentosRes] = await Promise.all([
+      tipoIds.length ? sb.from('tipos_processo').select('id, nome').in('id', tipoIds) : Promise.resolve({ data: [] }),
+      sb.from('andamentos').select('id, processo_id, criado_em, autor_nome, texto, status').in('processo_id', processoIds).order('criado_em', { ascending: false })
+    ]);
+
+    const mapaTipos = {};
+    (tiposRes.data || []).forEach(t => { mapaTipos[t.id] = t.nome; });
+
+    const andamentosPorProcesso = {};
+    (andamentosRes.data || []).forEach(a => {
+      if(!andamentosPorProcesso[a.processo_id]) andamentosPorProcesso[a.processo_id] = [];
+      andamentosPorProcesso[a.processo_id].push(a);
+    });
+
+    storeProcessos.forEach(p => {
+      p.tipo = { nome: mapaTipos[p.tipo_id] || null };
+      p.andamentos = andamentosPorProcesso[p.id] || [];
+    });
+  }
 
   // Popular selects de processo
   const opts = storeProcessos.map(p => `<option value="${p.id}">${p.numero}</option>`).join('');
