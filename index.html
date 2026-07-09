@@ -555,7 +555,7 @@ async function carregarTudo() {
 
 async function carregarProcessos() {
   const { data, error } = await sb.from('processos')
-    .select('id, numero, status, tipo_id, vara, criado_em')
+    .select('id, numero, status, tipo_id, vara, juiz, advogado_id, resultado, data_encerramento, criado_em')
     .eq('cliente_id', clienteId)
     .order('criado_em', { ascending: false });
   if(error) { console.warn(error.message); return; }
@@ -564,13 +564,15 @@ async function carregarProcessos() {
   if(storeProcessos.length) {
     const processoIds = storeProcessos.map(p => p.id);
     const tipoIds = [...new Set(storeProcessos.map(p => p.tipo_id).filter(Boolean))];
+    const hoje = new Date().toISOString().split('T')[0];
 
-    // Busca tipo de processo e andamentos à parte (em vez de usar o embed
-    // automático do PostgREST, que não estava reconhecendo a relação) e
-    // junta tudo aqui no JavaScript mesmo.
-    const [tiposRes, andamentosRes] = await Promise.all([
+    // Busca tipo de processo, andamentos e próximos prazos/audiências à
+    // parte (em vez de usar o embed automático do PostgREST, que não
+    // estava reconhecendo a relação) e junta tudo aqui no JavaScript mesmo.
+    const [tiposRes, andamentosRes, eventosRes] = await Promise.all([
       tipoIds.length ? sb.from('tipos_processo').select('id, nome').in('id', tipoIds) : Promise.resolve({ data: [] }),
-      sb.from('andamentos').select('id, processo_id, criado_em, autor_nome, texto, status').in('processo_id', processoIds).order('criado_em', { ascending: false })
+      sb.from('andamentos').select('id, processo_id, criado_em, autor_nome, texto, status').in('processo_id', processoIds).order('criado_em', { ascending: false }),
+      sb.from('eventos').select('id, processo_id, titulo, tipo, data_evento, hora').in('processo_id', processoIds).gte('data_evento', hoje).order('data_evento', { ascending: true })
     ]);
 
     const mapaTipos = {};
@@ -582,9 +584,16 @@ async function carregarProcessos() {
       andamentosPorProcesso[a.processo_id].push(a);
     });
 
+    const eventosPorProcesso = {};
+    (eventosRes.data || []).forEach(e => {
+      if(!eventosPorProcesso[e.processo_id]) eventosPorProcesso[e.processo_id] = [];
+      eventosPorProcesso[e.processo_id].push(e);
+    });
+
     storeProcessos.forEach(p => {
       p.tipo = { nome: mapaTipos[p.tipo_id] || null };
       p.andamentos = andamentosPorProcesso[p.id] || [];
+      p.proximosPrazos = eventosPorProcesso[p.id] || [];
     });
   }
 
@@ -647,6 +656,7 @@ function renderProcessos() {
     const tipo = p.tipo?.nome || '—';
     const andamentos = (p.andamentos||[]).slice().sort((a,b) => new Date(b.criado_em) - new Date(a.criado_em));
     const ultimoAnd = andamentos[0];
+    const proximoPrazo = (p.proximosPrazos||[])[0];
 
     return `<div class="processo-card" onclick="abrirProcesso('${p.id}')">
       <div class="processo-card-header">
@@ -657,6 +667,7 @@ function renderProcessos() {
         <span class="status-pill ${st.cls}">${st.icon} ${st.label}</span>
       </div>
       <div class="processo-card-body">
+        ${proximoPrazo ? `<div style="background:#FEF3C7;color:#92400E;border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;margin-bottom:10px">📅 ${proximoPrazo.titulo} — ${new Date(proximoPrazo.data_evento+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}${proximoPrazo.hora?' às '+proximoPrazo.hora:''}</div>` : ''}
         <div class="processo-meta">
           ${p.vara ? `<div class="meta-item"><strong>Vara:</strong> ${p.vara}</div>` : ''}
           ${ultimoAnd ? `<div class="meta-item" style="width:100%"><strong>Último andamento:</strong> ${ultimoAnd.texto?.slice(0,120)||'—'}${ultimoAnd.texto?.length>120?'…':''}</div>` : ''}
@@ -672,6 +683,13 @@ function abrirProcesso(processoId) {
 
   const st = STATUS_MAP[p.status] || { label: p.status, cls: 'status-encerrado', icon: '⚫' };
   const andamentos = (p.andamentos||[]).slice().sort((a,b) => new Date(b.criado_em) - new Date(a.criado_em));
+  const prazos = (p.proximosPrazos||[]).slice();
+  const abertura = p.criado_em ? new Date(p.criado_em).toLocaleDateString('pt-BR') : '—';
+
+  function infoItem(label, valor) {
+    if(!valor) return '';
+    return `<div><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray);margin-bottom:3px">${label}</div><div style="font-weight:600">${valor}</div></div>`;
+  }
 
   const html = `<div style="margin-bottom:24px">
     <button onclick="renderProcessos();document.getElementById('page-processos').querySelector('.page-title').textContent='Meus Processos'" style="background:none;border:none;color:var(--blue);cursor:pointer;font-size:13.5px;font-family:inherit;padding:0;margin-bottom:16px">← Voltar</button>
@@ -682,9 +700,30 @@ function abrirProcesso(processoId) {
       </div>
       <span class="status-pill ${st.cls}" style="font-size:13px;padding:6px 14px">${st.icon} ${st.label}</span>
     </div>
-    ${p.vara ? `<div class="card" style="margin-bottom:16px"><div class="card-body"><div style="display:flex;flex-wrap:wrap;gap:20px">
-      <div><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--gray);margin-bottom:3px">Vara</div><div style="font-weight:600">${p.vara}</div></div>
-    </div></div></div>` : ''}
+
+    <div class="card" style="margin-bottom:16px"><div class="card-body"><div style="display:flex;flex-wrap:wrap;gap:20px">
+      ${infoItem('Vara', p.vara)}
+      ${infoItem('Juiz', p.juiz)}
+      ${infoItem('Advogado Responsável', p.advogado_id)}
+      ${infoItem('Data de Abertura', abertura)}
+    </div></div></div>
+
+    ${(p.resultado || p.data_encerramento) ? `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--blue)"><div class="card-body">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">Resultado do Processo</div>
+      <div style="display:flex;flex-wrap:wrap;gap:20px">
+        ${infoItem('Resultado', p.resultado)}
+        ${infoItem('Data de Encerramento', p.data_encerramento ? new Date(p.data_encerramento+'T12:00:00').toLocaleDateString('pt-BR') : null)}
+      </div>
+    </div></div>` : ''}
+
+    ${prazos.length ? `<div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:12px">Próximos Prazos (${prazos.length})</div>
+    <div style="margin-bottom:20px">` + prazos.map(e => {
+      const data = new Date(e.data_evento+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
+      return `<div class="card" style="margin-bottom:8px"><div class="card-body" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px">
+        <div><div style="font-weight:600;font-size:13.5px">${e.titulo}</div><div style="font-size:12px;color:var(--gray)">${data}${e.hora?' às '+e.hora:''}</div></div>
+      </div></div>`;
+    }).join('') + `</div>` : ''}
+
     <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:12px">Andamentos (${andamentos.length})</div>
     ${andamentos.length ? `<div class="timeline">` + andamentos.map(a => {
       const data = new Date(a.criado_em).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'});
